@@ -404,7 +404,7 @@ class Session:
         while True:
             try:
                 return await self.send(query, timeout=timeout)
-            except (FloodWait, FloodPremiumWait) as e:
+            except FloodWait as e:
                 amount = e.value
 
                 if amount > sleep_threshold >= 0:
@@ -414,21 +414,16 @@ class Session:
                             self.client.name, amount, query_name)
 
                 await asyncio.sleep(amount)
-            except (OSError, InternalServerError, ServiceUnavailable, PersistentTimestampOutdated) as e:
+            except (OSError, InternalServerError, ServiceUnavailable) as e:
                 if retries == 0:
                     raise e from None
 
-                # Handle PersistentTimestampOutdated specifically
-                if isinstance(e, PersistentTimestampOutdated):
-                    log.warning('[%s] Persistent timestamp outdated. Retrying "%s" (retries left: %d)',
-                                self.client.name, query_name, retries)
-                    await asyncio.sleep(1)  # Wait for a short time before retrying
-                else:
-                    (log.warning if retries < 2 else log.info)(
-                        '[%s] Retrying "%s" due to: %s',
-                        Session.MAX_RETRIES - retries + 1,
-                        query_name, str(e) or repr(e)
-                    )
-                    await asyncio.sleep(0.5)
+                (log.warning if retries < 2 else log.info)(
+                    '[%s] Retrying "%s" due to: %s',
+                    Session.MAX_RETRIES - retries + 1,
+                    query_name, str(e) or repr(e)
+                )
+
+                await asyncio.sleep(0.5)
 
                 return await self.invoke(query, retries - 1, timeout)
