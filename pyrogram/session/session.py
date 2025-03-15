@@ -30,7 +30,7 @@ from pyrogram.connection import Connection
 from pyrogram.crypto import mtproto
 from pyrogram.errors import (
     RPCError, InternalServerError, AuthKeyDuplicated, FloodWait, FloodPremiumWait, ServiceUnavailable, BadMsgNotification,
-    SecurityCheckMismatch, Unauthorized
+    SecurityCheckMismatch, Unauthorized, PersistentTimestampOutdated
 )
 from pyrogram.raw.all import layer
 from pyrogram.raw.core import TLObject, MsgContainer, Int, FutureSalts
@@ -414,18 +414,21 @@ class Session:
                             self.client.name, amount, query_name)
 
                 await asyncio.sleep(amount)
-            except (OSError, InternalServerError, ServiceUnavailable) as e:
-                if retries == 0 \
-                        or (isinstance(e, InternalServerError)
-                            and e.code == 500 and (e.ID or e.NAME) == "HISTORY_GET_FAILED"):
+            except (OSError, InternalServerError, ServiceUnavailable, PersistentTimestampOutdated) as e:
+                if retries == 0:
                     raise e from None
 
-                (log.warning if retries < 2 else log.info)(
-                    '[%s] Retrying "%s" due to: %s',
-                    Session.MAX_RETRIES - retries + 1,
-                    query_name, str(e) or repr(e)
-                )
-
-                await asyncio.sleep(0.5)
+                # Handle PersistentTimestampOutdated specifically
+                if isinstance(e, PersistentTimestampOutdated):
+                    log.warning('[%s] Persistent timestamp outdated. Retrying "%s" (retries left: %d)',
+                                self.client.name, query_name, retries)
+                    await asyncio.sleep(1)  # Wait for a short time before retrying
+                else:
+                    (log.warning if retries < 2 else log.info)(
+                        '[%s] Retrying "%s" due to: %s',
+                        Session.MAX_RETRIES - retries + 1,
+                        query_name, str(e) or repr(e)
+                    )
+                    await asyncio.sleep(0.5)
 
                 return await self.invoke(query, retries - 1, timeout)
